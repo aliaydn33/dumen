@@ -1,4 +1,4 @@
-// Dümen ayarları — kurulum adımları README.md içinde.
+// Dümen ayarları. Nasıl doldurulacağı README.md'de.
 window.DUMEN_CONFIG = {
   // Google Cloud > Maps JavaScript API + Places API (New) açık bir anahtar.
   // Boş bırakırsan arama çalışmaz.

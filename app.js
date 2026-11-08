@@ -1,6 +1,5 @@
-// Dümen — Ankara'yı gezek
-// Ortak gezi rotası: Google Places ile arama, puan ve fotoğraf; Firebase ile ortak liste;
-// "Git" ile Google Haritalar'da aktarmalı toplu taşıma rotası.
+// Dümen: Ankara gezi listesi
+// Arama, puan ve fotoğraf Google Places'tan, ortak liste Firebase'den geliyor.
 
 const CFG = window.DUMEN_CONFIG || {};
 const $ = (s, el = document) => el.querySelector(s);
@@ -723,7 +722,7 @@ function initSearch() {
   if (!CFG.googleMapsApiKey) {
     input.disabled = true;
     input.placeholder = "Arama kapalı";
-    setNotice("maps", "<b>Arama kapalı.</b> config.js içine Google Maps API anahtarını yaz (README, 2. adım).");
+    setNotice("maps", "<b>Arama kapalı.</b> config.js içine Google Maps API anahtarını yaz (README'de anlatıyor).");
     return;
   }
   loadMaps(CFG.googleMapsApiKey).catch(() => {
@@ -767,7 +766,7 @@ async function initStore() {
     }
   } else {
     store = createLocalStore();
-    setNotice("store", "<b>Deneme modu.</b> Liste şimdilik sadece bu telefonda. Ortak liste için README'deki Firebase adımını yap.");
+    setNotice("store", "<b>Deneme modu.</b> Liste şimdilik sadece bu telefonda. Ortak liste için README'deki Firebase kısmına bak.");
   }
   store.subscribe(
     (items) => { state.places = items; state.loaded = true; render(); },

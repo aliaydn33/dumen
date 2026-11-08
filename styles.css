@@ -1,4 +1,4 @@
-/* Dümen — iOS'a yakışan sade arayüz. Açık/karanlık mod otomatik. */
+/* Dümen stilleri. Açık/karanlık mod sistem ayarına göre. */
 :root {
   color-scheme: light dark;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
