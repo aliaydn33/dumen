@@ -1,5 +1,5 @@
 // Dümen: Ankara gezi listesi
-// Arama, puan ve fotoğraf Google Places'tan, ortak liste Firebase'den geliyor.
+// Arama OpenStreetMap'ten (Photon), fotoğraflar Wikipedia'dan, ortak liste Firebase'den geliyor.
 
 const CFG = window.DUMEN_CONFIG || {};
 const $ = (s, el = document) => el.querySelector(s);
@@ -60,12 +60,21 @@ function distance(a, b) {
 }
 const walkMinutes = (m) => Math.max(1, Math.round((m * 1.3) / 80)); // ~4,8 km/sa, yol payıyla
 function ratingShort(p) {
-  if (p.rating == null) return "Puan yok";
-  return `<span class="star">★</span> ${fmtRating(p.rating)}${p.ratingCount ? ` (${nfCompact.format(p.ratingCount)})` : ""}`;
+  if (p.rating == null) return esc(p.category || "Puan girilmedi");
+  return `<span class="star">★</span> ${fmtRating(p.rating)}`;
 }
 function ratingLong(p) {
-  if (p.rating == null) return "Henüz Google puanı yok";
-  return `<span class="star">★</span> ${fmtRating(p.rating)}${p.ratingCount ? ` · ${nf.format(p.ratingCount)} değerlendirme` : ""}`;
+  const parts = [];
+  if (p.rating != null) parts.push(`<span class="star">★</span> ${fmtRating(p.rating)} Google puanı`);
+  if (p.category) parts.push(esc(p.category));
+  return parts.join(" · ") || "Google puanı girilmedi";
+}
+function parseRating(v) {
+  const t = String(v ?? "").trim().replace(",", ".");
+  if (!t) return null;
+  const n = Number(t);
+  if (!isFinite(n) || n < 1 || n > 5) return undefined;
+  return Math.round(n * 10) / 10;
 }
 // Türkçe ünlü uyumu: "Can da", "Ece de"
 function daDe(word) {
@@ -89,21 +98,24 @@ function colorFor(s) { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.c
 const fmtDay = (t) => new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
 
 /* ---------------- Yol tarifi bağlantıları ---------------- */
+const at = (p) => `${p.lat},${p.lng}`;
 const links = {
-  transit: (p) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.name)}&destination_place_id=${encodeURIComponent(p.id)}&travelmode=transit`,
-  walk: (p) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(p.name)}&destination_place_id=${encodeURIComponent(p.id)}&travelmode=walking`,
-  apple: (p) => `https://maps.apple.com/?daddr=${p.lat},${p.lng}&dirflg=r`,
-  gmapsApp: (p) => `comgooglemaps://?daddr=${p.lat},${p.lng}&directionsmode=transit`,
-  place: (p) => p.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name)}&query_place_id=${encodeURIComponent(p.id)}`,
+  transit: (p) => `https://www.google.com/maps/dir/?api=1&destination=${at(p)}&travelmode=transit`,
+  walk: (p) => `https://www.google.com/maps/dir/?api=1&destination=${at(p)}&travelmode=walking`,
+  apple: (p) => `https://maps.apple.com/?daddr=${at(p)}&dirflg=r`,
+  gmapsApp: (p) => `comgooglemaps://?daddr=${at(p)}&directionsmode=transit`,
+  google: (p) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${p.name}, ${p.address || "Ankara"}`)}`,
 };
 
 /* ---------------- Fotoğraflar ----------------
-   Google fotoğrafı yer eklenirken BİR kez çekilir, 720×540'a küçültülüp listeye
-   kaydedilir. Böylece arkadaşlar uygulamayı her açtığında yeniden ücretlendirilmez. */
+   Ünlü yerlerin fotoğrafı Wikipedia/Wikimedia'dan geliyor. Fotoğrafı olmayan
+   yerlere (kafeler vb.) telefondan fotoğraf eklenebiliyor; o küçültülüp listeye kaydediliyor. */
 const photoCache = new Map(); // yer id → { key, url }
 function photoSrc(p) {
   const data = p.photo;
-  if (typeof data !== "string" || !data.startsWith("data:image/")) return null;
+  if (typeof data !== "string") return null;
+  if (data.startsWith("https://")) return data;
+  if (!data.startsWith("data:image/")) return null;
   const key = data.length + ":" + data.slice(-32);
   const hit = photoCache.get(p.id);
   if (hit && hit.key === key) return hit.url;
@@ -118,10 +130,9 @@ function photoSrc(p) {
     return url;
   } catch { return data; }
 }
-function loadImage(src, cors) {
+function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    if (cors) img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error("image"));
     img.src = src;
@@ -134,32 +145,85 @@ function imageToDataURL(img, W = 720, H = 540) {
   const c = document.createElement("canvas");
   c.width = W; c.height = H;
   c.getContext("2d").drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, W, H);
-  let q = 0.78, url = c.toDataURL("image/jpeg", q); // CORS yoksa burada SecurityError
+  let q = 0.8, url = c.toDataURL("image/jpeg", q);
   while (url.length > 170000 && q > 0.45) { q -= 0.08; url = c.toDataURL("image/jpeg", q); }
   return url;
 }
-async function capturePhoto(photo) {
-  if (!photo) return null;
-  const a = photo.authorAttributions?.[0];
-  const info = { photo: null, photoBy: a?.displayName || null, photoByUri: a?.uri || null, previewSrc: null };
-  const src = photo.getURI({ maxWidth: 1000, maxHeight: 1000 });
-  try {
-    info.photo = imageToDataURL(await loadImage(src, true));
-    info.previewSrc = info.photo;
-  } catch (e) {
-    console.warn("Fotoğraf kaydedilemedi, sadece gösterilecek:", e);
-    info.previewSrc = src;
-  }
-  return info;
+async function photoFromFile(file) {
+  const url = URL.createObjectURL(file);
+  try { return imageToDataURL(await loadImage(url)); }
+  finally { URL.revokeObjectURL(url); }
 }
+
+async function getJSON(url, ms = 6000) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+const norm = (s) => String(s || "").toLocaleLowerCase("tr").replace(/ı/g, "i").normalize("NFD")
+  .replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+function sameName(a, b) {
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length < y.length ? [x, y] : [y, x];
+  if (short.length >= 4 && short.length / long.length >= 0.5 && long.includes(short)) return true;
+  const A = new Set(x.split(" ")), B = y.split(" ");
+  const hits = B.filter((w) => w.length > 2 && A.has(w)).length;
+  return hits / Math.max(A.size, B.length) >= 0.6;
+}
+const wikiPage = (lang, title) => `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`;
+const commonsFile = (file) => `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(file.replace(/ /g, "_"))}`;
+const fromPage = (pg, lang) => ({
+  photo: pg.thumbnail.source,
+  photoBy: "Wikimedia Commons",
+  photoByUri: pg.pageimage ? commonsFile(pg.pageimage) : wikiPage(lang, pg.title),
+});
+const PAGE_IMG = "action=query&format=json&formatversion=2&origin=*&prop=pageimages&piprop=thumbnail|name&pithumbsize=960";
+
+async function wikiPhoto(p) {
+  try {
+    // 1) OpenStreetMap'te yerin Wikipedia maddesi yazılıysa
+    if (p.wikipedia) {
+      const [lang, title] = p.wikipedia.includes(":") ? [p.wikipedia.split(":")[0], p.wikipedia.slice(p.wikipedia.indexOf(":") + 1)] : ["tr", p.wikipedia];
+      if (/^[a-z-]{2,12}$/.test(lang) && title) {
+        const d = await getJSON(`https://${lang}.wikipedia.org/w/api.php?${PAGE_IMG}&redirects=1&titles=${encodeURIComponent(title)}`);
+        const pg = d?.query?.pages?.[0];
+        if (pg?.thumbnail?.source) return fromPage(pg, lang);
+      }
+    }
+    // 2) Wikidata'daki görsel
+    if (/^Q\d+$/.test(p.wikidata || "")) {
+      const d = await getJSON(`https://www.wikidata.org/w/api.php?action=wbgetclaims&format=json&origin=*&property=P18&entity=${p.wikidata}`);
+      const file = d?.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+      if (typeof file === "string") {
+        return { photo: `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=960`, photoBy: "Wikimedia Commons", photoByUri: commonsFile(file) };
+      }
+    }
+    // 3) Yakındaki Wikipedia maddelerinden adı tutan
+    if (p.lat != null) {
+      const d = await getJSON(`https://tr.wikipedia.org/w/api.php?${PAGE_IMG}&generator=geosearch&ggscoord=${p.lat}|${p.lng}&ggsradius=600&ggslimit=15`);
+      const pages = (d?.query?.pages || []).slice().sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+      const pg = pages.find((x) => x.thumbnail?.source && sameName(x.title, p.name));
+      if (pg) return fromPage(pg, "tr");
+    }
+  } catch (e) { console.warn("Fotoğraf bulunamadı:", e); }
+  return null;
+}
+
 function avatarHTML(p, badge) {
   const src = photoSrc(p);
   return `<span class="ava" style="background:${colorFor(p.name)}">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : esc(initial(p.name))}${badge ? `<span class="num">${badge}</span>` : ""}</span>`;
 }
 function attributionHTML(p) {
-  if (!p.photoBy) return "Fotoğraf: Google Maps";
+  if (!p.photoBy) return "";
   return `Fotoğraf: ${p.photoByUri ? `<a href="${esc(p.photoByUri)}" target="_blank" rel="noopener">${esc(p.photoBy)}</a>` : esc(p.photoBy)}`;
 }
+const photoInput = (label) => `<label class="cell"><span class="ci">${I.photo}</span><span class="t">${label}</span><input type="file" accept="image/*" data-file hidden></label>`;
 
 /* ---------------- Veri: yerel (deneme modu) ---------------- */
 function createLocalStore() {
@@ -278,9 +342,9 @@ function heroHTML(p, nearestId) {
     <div class="hero-bottom">
       <div class="hero-text">
         <h3 class="hero-name">${esc(p.name)}</h3>
-        <div class="hero-meta">${ratingShort(p)}</div>
+        <div class="hero-meta">${ratingShort(p)}${p.rating != null && p.category ? ` · ${esc(p.category)}` : ""}</div>
         <div class="hero-who">${whoLong(p)}</div>
-        ${src ? `<div class="hero-attr">${esc(p.photoBy ? `Fotoğraf: ${p.photoBy}` : "Fotoğraf: Google Maps")}</div>` : ""}
+        ${src && p.photoBy ? `<div class="hero-attr">Fotoğraf: ${esc(p.photoBy)}</div>` : ""}
       </div>
       <a class="hero-go" href="${links.transit(p)}" target="_blank" rel="noopener">${I.nav}Git</a>
     </div>
@@ -491,9 +555,10 @@ function detailHTML(p) {
         ${canUp ? `<button class="cell" type="button" data-s="up"><span class="ci">${I.up}</span><span class="t">Sırada yukarı al</span></button>` : ""}
         ${canDown ? `<button class="cell" type="button" data-s="down"><span class="ci">${I.down}</span><span class="t">Sırada aşağı al</span></button>` : ""}
         <button class="cell" type="button" data-s="note"><span class="ci">${I.note}</span><span class="t">${p.note ? "Notu düzenle" : "Not ekle"}</span></button>
-        ${src ? "" : `<button class="cell" type="button" data-s="photo"><span class="ci">${I.photo}</span><span class="t">Google fotoğrafını ekle</span></button>`}
-        <a class="cell" href="${links.place(p)}" target="_blank" rel="noopener"><span class="ci">${I.star}</span><span class="t">Google'da yorumları gör</span></a>
-        ${hasLoc && !p.visited ? `<a class="cell" href="${links.gmapsApp(p)}"><span class="ci">${I.ext}</span><span class="t">Google Haritalar uygulamasında aç</span></a>` : ""}
+        <button class="cell" type="button" data-s="rating"><span class="ci">${I.star}</span><span class="t">${p.rating != null ? "Google puanını düzenle" : "Google puanını gir"}</span></button>
+        ${photoInput(src ? "Fotoğrafı değiştir" : "Telefondan fotoğraf ekle")}
+        <a class="cell" href="${links.google(p)}" target="_blank" rel="noopener"><span class="ci">${I.ext}</span><span class="t">Google'da yorumlara bak</span></a>
+        ${hasLoc && !p.visited ? `<a class="cell" href="${links.gmapsApp(p)}"><span class="ci">${I.map}</span><span class="t">Google Haritalar uygulamasında aç</span></a>` : ""}
       </div>
       <div class="group">
         <button class="cell cell--danger" type="button" data-s="del"><span class="ci">${I.trash}</span><span class="t">Listeden sil</span></button>
@@ -533,7 +598,7 @@ function openDetail(id) {
         const other = ordered[i + (act === "up" ? -1 : 1)];
         if (other) save(store.swapOrder(cur, other));
       } else if (act === "note") openNote(cur);
-      else if (act === "photo") refreshPhoto(cur);
+      else if (act === "rating") openRating(cur);
       else if (act === "del") {
         const copy = { ...cur };
         save(store.remove(id));
@@ -541,6 +606,14 @@ function openDetail(id) {
         toast("Listeden silindi", { label: "Geri al", run: () => save(store.add(copy)) });
       }
     },
+  };
+  ctx.onFile = async (file) => {
+    toast("Fotoğraf hazırlanıyor…");
+    try {
+      const photo = await photoFromFile(file);
+      save(store.update(id, { photo, photoBy: state.me || null, photoByUri: null }));
+      toast("Fotoğraf eklendi");
+    } catch (e) { console.error(e); toast("Bu fotoğraf açılamadı, başka birini dene."); }
   };
   openSheet(detailHTML(p), ctx);
 }
@@ -566,174 +639,205 @@ function openNote(p) {
   });
 }
 
-async function refreshPhoto(p) {
-  if (!CFG.googleMapsApiKey) { toast("Fotoğraf için Google anahtarı gerekli."); return; }
-  toast("Fotoğraf aranıyor…");
-  try {
-    await mapsReady;
-    const { Place } = await google.maps.importLibrary("places");
-    const place = new Place({ id: p.id });
-    await place.fetchFields({ fields: ["photos"] });
-    const info = await capturePhoto(place.photos?.[0]);
-    if (info?.photo) { save(store.update(p.id, { photo: info.photo, photoBy: info.photoBy, photoByUri: info.photoByUri })); toast("Fotoğraf eklendi"); }
-    else toast(info ? "Fotoğraf kaydedilemedi." : "Bu yerin Google fotoğrafı yok.");
-  } catch (e) { console.error(e); toast("Fotoğraf alınamadı."); }
+function ratingField(value = "") {
+  return `<label class="field-label" for="rateIn">Google puanı (isteğe bağlı)</label>
+    <div class="inline-row">
+      <input class="field" id="rateIn" name="rating" inputmode="decimal" maxlength="3" placeholder="Ör. 4,3" value="${esc(value)}">
+      <a class="btn-inline" data-google target="_blank" rel="noopener">${I.star}Google'da bak</a>
+    </div>`;
+}
+function openRating(p) {
+  openSheet(`
+    <div class="grip"></div>
+    <div class="sheet-body">
+      ${closeBtn}
+      <h2 id="sheetTitle">${esc(p.name)}</h2>
+      <p class="lead">Google Haritalar'da yerin puanına bak, buraya yaz.</p>
+      <form data-form="rating">
+        ${ratingField(p.rating != null ? fmtRating(p.rating) : "")}
+        <div class="actions"><button class="btn-primary" type="submit">Puanı kaydet</button></div>
+      </form>
+    </div>`, {
+    focus: "#rateIn",
+    onSubmit(form) {
+      const r = parseRating(form.rating.value);
+      if (r === undefined) { toast("Puan 1 ile 5 arasında olmalı, ör. 4,3"); return; }
+      save(store.update(p.id, { rating: r }));
+      toast(r == null ? "Puan silindi" : "Puan kaydedildi");
+      openDetail(p.id);
+    },
+  });
+  $("#sheet [data-google]").href = links.google(p);
 }
 
 /* ---------------- Önizleme ve ekleme ---------------- */
-function openPreview(p, info) {
+function openPreview(p, info, keep = {}) {
   const d = distance(state.pos, p);
-  const shown = info?.previewSrc;
+  const shown = info?.photo || null;
   openSheet(`
     ${shown
-      ? `<div class="sheet-photo"><div class="grip"></div><img src="${esc(shown)}" alt="${esc(p.name)}">${closeBtn}<div class="attr">${attributionHTML({ photoBy: info.photoBy, photoByUri: info.photoByUri })}</div></div>`
+      ? `<div class="sheet-photo"><div class="grip"></div><img src="${esc(shown)}" alt="${esc(p.name)}">${closeBtn}<div class="attr">${attributionHTML(info)}</div></div>`
       : `<div class="grip"></div>`}
     <div class="sheet-body">
       ${shown ? "" : closeBtn}
       <h2 id="sheetTitle">${esc(p.name)}</h2>
-      <div class="sheet-meta">${ratingLong(p)}${isFinite(d) ? ` · ${fmtDist(d)}` : ""}</div>
+      <div class="sheet-meta">${[esc(p.category), isFinite(d) ? fmtDist(d) : ""].filter(Boolean).join(" · ")}</div>
       ${p.address ? `<p class="sheet-addr">${esc(p.address)}</p>` : ""}
       <form data-form="add">
+        ${ratingField(keep.rating || "")}
         <label class="field-label" for="noteIn">Not (isteğe bağlı)</label>
-        <input class="field" id="noteIn" name="note" maxlength="140" placeholder="Ör. akşamüstü gidelim, manzarası güzel">
+        <input class="field" id="noteIn" name="note" maxlength="140" placeholder="Ör. akşamüstü gidelim, manzarası güzel" value="${esc(keep.note || "")}">
+        ${shown ? "" : `<div class="group">${photoInput("Telefondan fotoğraf ekle")}</div>`}
         <div class="actions"><button class="btn-primary" type="submit">${I.plus}Listeye ekle</button></div>
       </form>
-      <p class="hint">Puan, adres ve fotoğraf Google Maps'ten.</p>
+      <p class="hint">Konum ve adres OpenStreetMap'ten${shown && info.photoBy === "Wikimedia Commons" ? ", fotoğraf Wikipedia'dan" : ""}.</p>
     </div>`, {
     onSubmit(form) {
+      const rating = parseRating(form.rating.value);
+      if (rating === undefined) { toast("Puan 1 ile 5 arasında olmalı, ör. 4,3"); return; }
       const now = Date.now();
       save(store.add({
-        id: p.id, name: p.name, address: p.address || "", lat: p.lat ?? null, lng: p.lng ?? null,
-        rating: p.rating ?? null, ratingCount: p.ratingCount ?? null, mapsUrl: p.mapsUrl || null,
-        photo: info?.photo || null, photoBy: info?.photo ? info.photoBy : null, photoByUri: info?.photo ? info.photoByUri : null,
+        id: p.id, name: p.name, address: p.address || "", lat: p.lat, lng: p.lng, category: p.category || "",
+        rating, photo: info?.photo || null, photoBy: info?.photo ? info.photoBy : null, photoByUri: info?.photo ? info.photoByUri || null : null,
         note: form.note.value.trim(), addedBy: state.me, fans: [state.me],
         order: now, visited: false, visitedAt: null, createdAt: now,
       }));
       closeSheet(); clearSearch();
       toast("Listeye eklendi");
     },
+    async onFile(file) {
+      const form = $("#sheet form");
+      const keepNow = { rating: form.rating.value, note: form.note.value };
+      try {
+        const photo = await photoFromFile(file);
+        openPreview(p, { photo, photoBy: state.me || null, photoByUri: null }, keepNow);
+      } catch (e) { console.error(e); toast("Bu fotoğraf açılamadı, başka birini dene."); }
+    },
   });
+  $("#sheet [data-google]").href = links.google(p);
 }
 
-/* ---------------- Google Places arama ---------------- */
-let mapsReady = Promise.reject(new Error("no key"));
-mapsReady.catch(() => {});
-let sessionToken = null;
+/* ---------------- Arama (OpenStreetMap / Photon) ----------------
+   Photon ücretsiz ve anahtar istemiyor. Yazarken öneri vermek için yapılmış. */
+const PHOTON = "https://photon.komoot.io/api/";
+const CENTER = { lat: 39.9208, lng: 32.8541 }; // Kızılay
 let reqId = 0;
+let pickSeq = 0;
 let preds = [];
 let activeIdx = -1;
+let searchCtl = null;
 
-function loadMaps(key) {
-  mapsReady = new Promise((resolve, reject) => {
-    window.__dumenMapsReady = () => resolve();
-    window.gm_authFailure = () => {
-      setNotice("maps", "<b>Google Maps anahtarı reddedildi.</b> Anahtarın web sitesi kısıtlamasını, açık API'leri ve faturalandırmayı kontrol et (README).");
-      reject(new Error("auth"));
-    };
-    const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&loading=async&language=tr&region=TR&callback=__dumenMapsReady`;
-    s.async = true;
-    s.onerror = () => reject(new Error("load"));
-    document.head.append(s);
+const CATEGORIES = {
+  amenity: { restaurant: "Restoran", cafe: "Kafe", fast_food: "Hızlı yemek", bar: "Bar", pub: "Bar", ice_cream: "Dondurmacı",
+    library: "Kütüphane", cinema: "Sinema", theatre: "Tiyatro", place_of_worship: "İbadet yeri", university: "Üniversite",
+    marketplace: "Pazar", arts_centre: "Sanat merkezi", nightclub: "Gece kulübü", food_court: "Yemek alanı", community_centre: "Kültür merkezi" },
+  tourism: { museum: "Müze", attraction: "Gezilecek yer", viewpoint: "Seyir noktası", gallery: "Galeri", hotel: "Otel",
+    zoo: "Hayvanat bahçesi", theme_park: "Lunapark", artwork: "Sanat eseri", picnic_site: "Piknik alanı", aquarium: "Akvaryum" },
+  leisure: { park: "Park", garden: "Bahçe", sports_centre: "Spor merkezi", stadium: "Stadyum", water_park: "Su parkı",
+    nature_reserve: "Doğa alanı", amusement_arcade: "Oyun salonu", bowling_alley: "Bowling" },
+  historic: { castle: "Kale", monument: "Anıt", memorial: "Anıt", ruins: "Ören yeri", archaeological_site: "Ören yeri", fort: "Kale" },
+  shop: { mall: "AVM", bakery: "Fırın", pastry: "Pastane", books: "Kitapçı", department_store: "Mağaza", coffee: "Kahveci" },
+  place: { city: "Şehir", town: "İlçe", suburb: "Semt", neighbourhood: "Mahalle", quarter: "Semt", village: "Köy" },
+  natural: { peak: "Tepe", water: "Göl", wood: "Orman" },
+  railway: { station: "İstasyon" },
+};
+function categoryOf(key, value) {
+  if (CATEGORIES[key]?.[value]) return CATEGORIES[key][value];
+  if (key === "highway") return "Yol";
+  if (key === "building") return "Bina";
+  return "";
+}
+
+function photonURL(text) {
+  const b = CFG.searchBounds || { south: 38.65, west: 30.8, north: 40.75, east: 33.95 };
+  const c = state.pos || CENTER;
+  const params = new URLSearchParams({
+    q: text, lang: "default", limit: "8",
+    bbox: `${b.west},${b.south},${b.east},${b.north}`,
+    lat: c.lat.toFixed(5), lon: c.lng.toFixed(5), location_bias_scale: "0.3",
   });
-  mapsReady.catch(() => {});
-  return mapsReady;
+  return `${PHOTON}?${params}`;
+}
+function featureToPlace(f) {
+  const pr = f.properties || {};
+  const [lng, lat] = f.geometry?.coordinates || [];
+  const street = [pr.street, pr.housenumber].filter(Boolean).join(" ");
+  const name = pr.name || street;
+  const parts = [street !== name ? street : "", pr.district || pr.locality, pr.city || pr.county].filter(Boolean);
+  return {
+    id: `osm-${pr.osm_type || "X"}${pr.osm_id}`,
+    name,
+    lat: typeof lat === "number" ? lat : null,
+    lng: typeof lng === "number" ? lng : null,
+    category: categoryOf(pr.osm_key, pr.osm_value),
+    area: pr.district || pr.locality || pr.city || "",
+    address: [...new Set(parts)].join(", "),
+    wikipedia: pr.extra?.wikipedia || null,
+    wikidata: pr.extra?.wikidata || null,
+  };
 }
 
 const q = () => $("#q");
 function showSuggest(html) { const ul = $("#suggest"); ul.innerHTML = html; ul.hidden = false; q().setAttribute("aria-expanded", "true"); }
 function hideSuggest() { $("#suggest").hidden = true; q().setAttribute("aria-expanded", "false"); q().removeAttribute("aria-activedescendant"); activeIdx = -1; }
-function clearSearch() { q().value = ""; $("#qClear").hidden = true; hideSuggest(); sessionToken = null; preds = []; }
+function clearSearch() { q().value = ""; $("#qClear").hidden = true; hideSuggest(); preds = []; }
 
 function renderSuggestions() {
   if (!preds.length) { showSuggest(`<li class="s-info">Ankara'da böyle bir yer bulunamadı. Farklı yaz ya da semt ekle.</li>`); return; }
   showSuggest(preds.map((p, i) => {
-    const main = p.mainText?.text ?? p.text?.text ?? "";
-    const sub = p.secondaryText?.text ?? "";
-    const dist = typeof p.distanceMeters === "number" ? fmtDist(p.distanceMeters) : "";
-    const inList = state.places.some((x) => x.id === p.placeId);
+    const d = distance(state.pos, p);
+    const inList = state.places.some((x) => x.id === p.id);
+    const sub = [inList ? "Listede" : "", p.category, p.area].filter(Boolean).join(" · ");
     return `<li role="option" id="sg${i}" data-i="${i}" aria-selected="${i === activeIdx}">
       <span class="s-pin">${I.pin}</span>
-      <div class="s-text"><div class="s-main">${esc(main)}</div>${sub || inList ? `<div class="s-sub">${inList ? "Listede · " : ""}${esc(sub)}</div>` : ""}</div>
-      ${dist ? `<span class="s-dist">${dist}</span>` : ""}</li>`;
-  }).join("") + `<li class="s-foot" aria-hidden="true">Google Maps</li>`);
+      <div class="s-text"><div class="s-main">${esc(p.name)}</div>${sub ? `<div class="s-sub">${esc(sub)}</div>` : ""}</div>
+      ${isFinite(d) ? `<span class="s-dist">${fmtDist(d)}</span>` : ""}</li>`;
+  }).join("") + `<li class="s-foot" aria-hidden="true">© OpenStreetMap</li>`);
 }
 
 async function fetchSuggestions(text) {
   const my = ++reqId;
   if (text.trim().length < 2) { hideSuggest(); return; }
+  searchCtl?.abort();
+  searchCtl = new AbortController();
   try {
-    await mapsReady;
-    const { AutocompleteSuggestion, AutocompleteSessionToken } = await google.maps.importLibrary("places");
-    if (!sessionToken) sessionToken = new AutocompleteSessionToken();
-    const req = {
-      input: text, sessionToken, language: "tr", region: "tr", includedRegionCodes: ["tr"],
-      locationRestriction: CFG.searchBounds || { south: 38.65, west: 30.8, north: 40.75, east: 33.95 },
-    };
-    if (state.pos) req.origin = state.pos;
-    const { suggestions } = await AutocompleteSuggestion.fetchAutocompleteSuggestions(req);
+    const r = await fetch(photonURL(text.trim()), { signal: searchCtl.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
     if (my !== reqId) return;
-    preds = suggestions.map((s) => s.placePrediction).filter(Boolean);
+    const seen = new Set();
+    preds = (data.features || []).map(featureToPlace)
+      .filter((p) => p.name && p.lat != null && !seen.has(p.id) && seen.add(p.id));
     activeIdx = -1;
     renderSuggestions();
   } catch (e) {
-    if (my !== reqId) return;
+    if (e.name === "AbortError" || my !== reqId) return;
     console.error(e);
-    showSuggest(`<li class="s-info">Arama yapılamadı. İnternetini ve Google API anahtarını kontrol et.</li>`);
+    showSuggest(`<li class="s-info">Arama yapılamadı. İnternet bağlantını kontrol edip tekrar dene.</li>`);
   }
 }
 
 async function pick(i) {
-  const pred = preds[i];
-  if (!pred) return;
+  const p = preds[i];
+  if (!p) return;
   hideSuggest();
   q().blur();
-  const main = pred.mainText?.text ?? pred.text?.text ?? "";
-  const already = state.places.find((x) => x.id === pred.placeId);
-  if (already) { sessionToken = null; clearSearch(); openDetail(already.id); return; }
-
-  openSheet(`<div class="grip"></div><div class="sheet-body">${closeBtn}<h2 id="sheetTitle">${esc(main)}</h2><p class="loading">Puan ve fotoğraf yükleniyor…</p></div>`);
-  try {
-    const place = pred.toPlace();
-    await place.fetchFields({ fields: ["displayName", "formattedAddress", "location", "rating", "userRatingCount", "googleMapsURI", "photos"] });
-    const p = {
-      id: place.id,
-      name: place.displayName || main,
-      address: place.formattedAddress || "",
-      lat: place.location ? place.location.lat() : null,
-      lng: place.location ? place.location.lng() : null,
-      rating: typeof place.rating === "number" ? place.rating : null,
-      ratingCount: typeof place.userRatingCount === "number" ? place.userRatingCount : null,
-      mapsUrl: place.googleMapsURI || null,
-    };
-    const info = await capturePhoto(place.photos?.[0]).catch(() => null);
-    if ($("#sheet").hidden) return; // kullanıcı vazgeçti
-    openPreview(p, info);
-  } catch (e) {
-    console.error(e);
-    openSheet(`<div class="grip"></div><div class="sheet-body">${closeBtn}<h2 id="sheetTitle">${esc(main)}</h2><p class="loading">Yer bilgisi alınamadı. Tekrar dene.</p></div>`);
-  } finally {
-    sessionToken = null; // oturum bitti; sonraki arama yeni oturum
-  }
+  const already = state.places.find((x) => x.id === p.id);
+  if (already) { clearSearch(); openDetail(already.id); return; }
+  const mine = ++pickSeq;
+  openSheet(`<div class="grip"></div><div class="sheet-body">${closeBtn}<h2 id="sheetTitle">${esc(p.name)}</h2><p class="loading">Fotoğraf aranıyor…</p></div>`);
+  const info = await wikiPhoto(p);
+  if (mine !== pickSeq || $("#sheet").hidden) return; // kullanıcı vazgeçti
+  openPreview(p, info);
 }
 
 function initSearch() {
   const input = q();
-  if (!CFG.googleMapsApiKey) {
-    input.disabled = true;
-    input.placeholder = "Arama kapalı";
-    setNotice("maps", "<b>Arama kapalı.</b> config.js içine Google Maps API anahtarını yaz (README'de anlatıyor).");
-    return;
-  }
-  loadMaps(CFG.googleMapsApiKey).catch(() => {
-    if (!notices.has("maps")) setNotice("maps", "<b>Google Maps yüklenemedi.</b> İnternet bağlantını kontrol et.");
-  });
-
   let t;
   input.addEventListener("input", () => {
     $("#qClear").hidden = !input.value;
     clearTimeout(t);
-    t = setTimeout(() => fetchSuggestions(input.value), 280);
+    t = setTimeout(() => fetchSuggestions(input.value), 300);
   });
   input.addEventListener("focus", () => { if (input.value.trim().length >= 2 && preds.length) renderSuggestions(); });
   input.addEventListener("keydown", (e) => {
@@ -790,6 +894,10 @@ function init() {
     if (a && sheetCtx?.onAction) sheetCtx.onAction(a.dataset.s, a);
   });
   sheet.addEventListener("submit", (e) => { e.preventDefault(); sheetCtx?.onSubmit?.(e.target); });
+  sheet.addEventListener("change", (e) => {
+    const input = e.target.closest("[data-file]");
+    if (input?.files?.[0] && sheetCtx?.onFile) sheetCtx.onFile(input.files[0]);
+  });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
   $("#meBtn").addEventListener("click", () => openProfile(false));
   $("#geoBtn").addEventListener("click", () => locate(true));

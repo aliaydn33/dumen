@@ -1,11 +1,7 @@
 // Dümen ayarları. Nasıl doldurulacağı README.md'de.
 window.DUMEN_CONFIG = {
-  // Google Cloud > Maps JavaScript API + Places API (New) açık bir anahtar.
-  // Boş bırakırsan arama çalışmaz.
-  googleMapsApiKey: "AIzaSyAV7aM-urqM623yYWc4EJmR03KmDE1yz50",
-
   // Firebase proje ayarı (Project settings > Your apps > Web app > Config).
-  // null bırakırsan uygulama "deneme modunda" çalışır: liste sadece o telefonda durur.
+  // null bırakırsan uygulama deneme modunda çalışır: liste sadece o telefonda durur.
   firebase: null,
   // Örnek:
   // firebase: {

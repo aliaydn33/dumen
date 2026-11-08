@@ -8,7 +8,7 @@ service cloud.firestore {
 
     function validPlace(d) {
       return d.keys().hasOnly(['name', 'address', 'lat', 'lng', 'rating', 'ratingCount', 'mapsUrl',
-                               'photo', 'photoBy', 'photoByUri',
+                               'photo', 'photoBy', 'photoByUri', 'category',
                                'note', 'addedBy', 'fans', 'order', 'visited', 'visitedAt', 'createdAt'])
         && d.name is string && d.name.size() > 0 && d.name.size() <= 200
         && (!('photo' in d) || d.photo == null || (d.photo is string && d.photo.size() <= 250000))

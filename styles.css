@@ -357,6 +357,17 @@ input:focus-visible, textarea:focus-visible { outline: none; }
   font: inherit; font-size: 17px; color: var(--label);
 }
 textarea.field { min-height: 90px; resize: vertical; }
+.inline-row { display: flex; gap: 8px; }
+.inline-row .field { flex: 1; min-width: 0; }
+.btn-inline {
+  flex: none; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 48px; padding: 0 14px; border-radius: 12px;
+  background: var(--surface); color: var(--label); font-size: 15px; font-weight: 600; text-decoration: none;
+}
+.btn-inline svg { width: 18px; height: 18px; color: var(--star); }
+label.cell { cursor: pointer; }
+form .group { margin-top: 16px; }
+.attrib a { color: inherit; }
 .hint { margin: 12px 4px 0; font-size: 13px; color: var(--label-2); }
 .hint a { color: var(--label); font-weight: 600; }
 .loading { padding: 8px 0 18px; color: var(--label-2); font-size: 15px; }
