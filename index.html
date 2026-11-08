@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Dümen</title>
+  <meta name="description" content="Ankara'yı gezek: arkadaşlarla ortak gezi rotası">
+  <meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Dümen">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/favicon-32.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="head wrap">
+    <div class="brandbar">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="12" cy="12" r="6.2"/>
+            <path d="M12 2.2v19.6M2.2 12h19.6M5.1 5.1l13.8 13.8M18.9 5.1L5.1 18.9"/>
+          </g>
+          <circle cx="12" cy="12" r="2.2" fill="currentColor"/>
+        </svg>
+        Dümen
+      </div>
+      <button class="me" id="meBtn" type="button" aria-label="Profil ve davet"><span id="meInitial">?</span></button>
+    </div>
+    <h1 class="title">Ankara'yı gezek</h1>
+    <p class="lede" id="lede">&nbsp;</p>
+  </header>
+
+  <div class="searchbar">
+    <div class="search wrap" id="search">
+      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 15.5L20.5 20.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      <input id="q" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false"
+             placeholder="Nereye gidelim?" aria-label="Yer ara" aria-controls="suggest" aria-expanded="false">
+      <button class="search-clear" id="qClear" type="button" aria-label="Aramayı temizle" hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="currentColor"/><path d="M7 7l6 6M13 7l-6 6" stroke="var(--bg)" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <ul class="suggest" id="suggest" role="listbox" hidden></ul>
+    </div>
+  </div>
+
+  <main class="main wrap">
+    <div class="notice" id="notice" hidden></div>
+
+    <div class="seg" id="seg" role="radiogroup" aria-label="Sıralama" hidden>
+      <button type="button" role="radio" data-sort="order" aria-checked="true">Sıra</button>
+      <button type="button" role="radio" data-sort="near" aria-checked="false">Yakın</button>
+      <button type="button" role="radio" data-sort="rating" aria-checked="false">Puan</button>
+      <button type="button" role="radio" data-sort="fans" aria-checked="false">Popüler</button>
+    </div>
+
+    <button class="geo" id="geoBtn" type="button" hidden>
+      <span class="gi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l18-8-8 18-2-8-8-2z" fill="currentColor"/></svg></span>
+      <span><b>Konumu aç</b><small>Mesafeleri ve sana en yakın yeri gösterelim</small></span>
+    </button>
+
+    <section id="nextWrap" hidden>
+      <h2 class="sec" id="nextTitle">Sıradaki durak</h2>
+      <div id="next"></div>
+    </section>
+
+    <section id="restWrap" hidden>
+      <h2 class="sec">Sonraki duraklar</h2>
+      <ol class="route" id="list" aria-label="Sonraki duraklar"></ol>
+    </section>
+
+    <div class="empty" id="empty" hidden></div>
+
+    <details class="done" id="doneWrap" hidden>
+      <summary>Gittiklerimiz <span class="count"><span id="doneCount"></span><span class="chev" aria-hidden="true"></span></span></summary>
+      <ol class="route route--done" id="doneList" aria-label="Gittiklerimiz"></ol>
+    </details>
+
+    <p class="attrib">Yerler, puanlar ve fotoğraflar: Google Maps</p>
+  </main>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden></section>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="config.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

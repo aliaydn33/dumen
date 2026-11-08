@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// Dümen: ortak liste kuralları.
+// Uygulama anonim giriş yapar; giriş yapmamış kimse okuyamaz/yazamaz.
+// Yazılan veri belli alanlarla ve boyutlarla sınırlı.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function validPlace(d) {
+      return d.keys().hasOnly(['name', 'address', 'lat', 'lng', 'rating', 'ratingCount', 'mapsUrl',
+                               'photo', 'photoBy', 'photoByUri',
+                               'note', 'addedBy', 'fans', 'order', 'visited', 'visitedAt', 'createdAt'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 200
+        && (!('photo' in d) || d.photo == null || (d.photo is string && d.photo.size() <= 250000))
+        && d.note is string && d.note.size() <= 280
+        && d.addedBy is string && d.addedBy.size() <= 40
+        && d.fans is list && d.fans.size() <= 50
+        && d.visited is bool
+        && d.order is number;
+    }
+
+    match /groups/{groupId}/places/{placeId} {
+      allow read, delete: if request.auth != null;
+      allow create, update: if request.auth != null && validPlace(request.resource.data);
+    }
+  }
+}
