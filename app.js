@@ -4,9 +4,10 @@
 const CFG = window.DUMEN_CONFIG || {};
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const safeUrl = (u) => (typeof u === "string" && /^https:\/\//.test(u) ? u : "");
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* dolu ya da kapalı */ } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
 };
 
 const state = {
@@ -98,7 +99,8 @@ function colorFor(s) { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.c
 const fmtDay = (t) => new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
 
 /* ---------------- Yol tarifi bağlantıları ---------------- */
-const at = (p) => `${p.lat},${p.lng}`;
+const hasCoords = (p) => typeof p.lat === "number" && typeof p.lng === "number";
+const at = (p) => (hasCoords(p) ? `${p.lat},${p.lng}` : encodeURIComponent(`${p.name}, ${p.address || "Ankara"}`));
 const links = {
   transit: (p) => `https://www.google.com/maps/dir/?api=1&destination=${at(p)}&travelmode=transit`,
   walk: (p) => `https://www.google.com/maps/dir/?api=1&destination=${at(p)}&travelmode=walking`,
@@ -221,16 +223,20 @@ function avatarHTML(p, badge) {
 }
 function attributionHTML(p) {
   if (!p.photoBy) return "";
-  return `Fotoğraf: ${p.photoByUri ? `<a href="${esc(p.photoByUri)}" target="_blank" rel="noopener">${esc(p.photoBy)}</a>` : esc(p.photoBy)}`;
+  const uri = safeUrl(p.photoByUri);
+  return `Fotoğraf: ${uri ? `<a href="${esc(uri)}" target="_blank" rel="noopener">${esc(p.photoBy)}</a>` : esc(p.photoBy)}`;
 }
-const photoInput = (label) => `<label class="cell"><span class="ci">${I.photo}</span><span class="t">${label}</span><input type="file" accept="image/*" data-file hidden></label>`;
+const photoInput = (label) => `<label class="cell"><span class="ci">${I.photo}</span><span class="t">${label}</span><input type="file" accept="image/*" data-file class="file-input"></label>`;
 
 /* ---------------- Veri: yerel (deneme modu) ---------------- */
 function createLocalStore() {
   const KEY = "dumen.places." + (CFG.groupId || "local");
   let items = LS.get(KEY, []);
   let cb = () => {};
-  const emit = () => { LS.set(KEY, items); cb(items.slice()); };
+  const emit = () => {
+    if (!LS.set(KEY, items)) toast("Telefonda yer kalmadı, bu değişiklik kaydedilemedi. Ortak liste (Firebase) bu sorunu çözer.");
+    cb(items.slice());
+  };
   const patchOne = (id, fn) => { items = items.map((x) => (x.id === id ? fn(x) : x)); emit(); };
   return {
     mode: "local",
@@ -780,10 +786,70 @@ function featureToPlace(f) {
 const q = () => $("#q");
 function showSuggest(html) { const ul = $("#suggest"); ul.innerHTML = html; ul.hidden = false; q().setAttribute("aria-expanded", "true"); }
 function hideSuggest() { $("#suggest").hidden = true; q().setAttribute("aria-expanded", "false"); q().removeAttribute("aria-activedescendant"); activeIdx = -1; }
-function clearSearch() { q().value = ""; $("#qClear").hidden = true; hideSuggest(); preds = []; }
+function clearSearch() { q().value = ""; $("#qClear").hidden = true; hideSuggest(); preds = []; lastQuery = ""; }
 
-function renderSuggestions() {
-  if (!preds.length) { showSuggest(`<li class="s-info">Ankara'da böyle bir yer bulunamadı. Farklı yaz ya da semt ekle.</li>`); return; }
+/* Nominatim: OpenStreetMap'in kendi arama servisi. Kuralları gereği yazarken
+   değil, sadece "Ara"ya basınca kullanılıyor (saniyede en fazla 1 istek). */
+const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+let photonOK = true;
+let lastQuery = "";
+let nominatimAt = 0;
+function nominatimToPlace(r) {
+  const a = r.address || {};
+  const name = r.name || String(r.display_name || "").split(",")[0].trim();
+  const district = a.city_district || a.town || a.county || a.suburb || a.village || "";
+  const city = a.province || a.city || a.state || "";
+  const street = [a.road, a.house_number].filter(Boolean).join(" ");
+  const parts = [street !== name ? street : "", district, city].filter(Boolean);
+  return {
+    id: `osm-${String(r.osm_type || "x").charAt(0).toUpperCase()}${r.osm_id}`,
+    name,
+    lat: Number(r.lat), lng: Number(r.lon),
+    category: categoryOf(r.category ?? r.class, r.type),
+    area: district || city,
+    address: [...new Set(parts)].join(", "),
+    wikipedia: r.extratags?.wikipedia || null,
+    wikidata: r.extratags?.wikidata || null,
+  };
+}
+async function searchNominatim(text) {
+  const my = ++reqId;
+  const wait = 1100 - (Date.now() - nominatimAt);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  if (my !== reqId) return;
+  nominatimAt = Date.now();
+  showSuggest(`<li class="s-info">Aranıyor…</li>`);
+  const b = CFG.searchBounds || { south: 38.65, west: 30.8, north: 40.75, east: 33.95 };
+  const params = new URLSearchParams({
+    q: text, format: "jsonv2", addressdetails: "1", extratags: "1", limit: "10",
+    "accept-language": "tr", countrycodes: "tr", viewbox: `${b.west},${b.north},${b.east},${b.south}`, bounded: "1",
+  });
+  try {
+    const list = await getJSON(`${NOMINATIM}?${params}`, 8000);
+    if (my !== reqId) return;
+    const seen = new Set();
+    preds = (Array.isArray(list) ? list : []).map(nominatimToPlace)
+      .filter((p) => p.name && isFinite(p.lat) && !seen.has(p.id) && seen.add(p.id));
+    lastQuery = text;
+    activeIdx = -1;
+    renderSuggestions(true);
+  } catch (e) {
+    if (my !== reqId) return;
+    console.error(e);
+    showSuggest(`<li class="s-info">Arama yapılamadı. İnternet bağlantını kontrol edip tekrar dene.</li>${manualRow(text)}`);
+  }
+}
+
+const manualRow = (text) => text && text.trim().length >= 2
+  ? `<li data-manual="1"><span class="s-pin">${I.plus}</span><div class="s-text"><div class="s-main">"${esc(text.trim())}" adıyla elle ekle</div><div class="s-sub">Bulamadıysan. Yol tarifi Google Haritalar'da adla açılır.</div></div></li>`
+  : "";
+
+function renderSuggestions(full = false) {
+  const text = q().value;
+  if (!preds.length) {
+    showSuggest(`<li class="s-info">${full ? "Bulunamadı. Başka bir şekilde yazmayı ya da semt eklemeyi dene." : "Öneri yok. Daha fazla sonuç için klavyeden <b>Ara</b>'ya bas."}</li>${manualRow(text)}`);
+    return;
+  }
   showSuggest(preds.map((p, i) => {
     const d = distance(state.pos, p);
     const inList = state.places.some((x) => x.id === p.id);
@@ -792,12 +858,17 @@ function renderSuggestions() {
       <span class="s-pin">${I.pin}</span>
       <div class="s-text"><div class="s-main">${esc(p.name)}</div>${sub ? `<div class="s-sub">${esc(sub)}</div>` : ""}</div>
       ${isFinite(d) ? `<span class="s-dist">${fmtDist(d)}</span>` : ""}</li>`;
-  }).join("") + `<li class="s-foot" aria-hidden="true">© OpenStreetMap</li>`);
+  }).join("") + manualRow(text) + `<li class="s-foot" aria-hidden="true">© OpenStreetMap</li>`);
 }
 
 async function fetchSuggestions(text) {
   const my = ++reqId;
   if (text.trim().length < 2) { hideSuggest(); return; }
+  if (!photonOK) {
+    preds = [];
+    showSuggest(`<li class="s-info">Aramak için klavyeden <b>Ara</b>'ya bas.</li>`);
+    return;
+  }
   searchCtl?.abort();
   searchCtl = new AbortController();
   try {
@@ -808,13 +879,23 @@ async function fetchSuggestions(text) {
     const seen = new Set();
     preds = (data.features || []).map(featureToPlace)
       .filter((p) => p.name && p.lat != null && !seen.has(p.id) && seen.add(p.id));
+    lastQuery = text;
     activeIdx = -1;
     renderSuggestions();
   } catch (e) {
     if (e.name === "AbortError" || my !== reqId) return;
-    console.error(e);
-    showSuggest(`<li class="s-info">Arama yapılamadı. İnternet bağlantını kontrol edip tekrar dene.</li>`);
+    console.warn("Photon çalışmadı, Ara tuşuyla Nominatim kullanılacak:", e);
+    photonOK = false; // bu oturumda bir daha deneme
+    preds = [];
+    showSuggest(`<li class="s-info">Aramak için klavyeden <b>Ara</b>'ya bas.</li>`);
   }
+}
+
+function addManual(text) {
+  const name = text.trim().replace(/\s+/g, " ").slice(0, 120);
+  if (!name) return;
+  hideSuggest(); q().blur();
+  openPreview({ id: `manual-${Date.now().toString(36)}`, name, lat: null, lng: null, category: "", area: "", address: "Ankara" }, null);
 }
 
 async function pick(i) {
@@ -825,9 +906,13 @@ async function pick(i) {
   const already = state.places.find((x) => x.id === p.id);
   if (already) { clearSearch(); openDetail(already.id); return; }
   const mine = ++pickSeq;
-  openSheet(`<div class="grip"></div><div class="sheet-body">${closeBtn}<h2 id="sheetTitle">${esc(p.name)}</h2><p class="loading">Fotoğraf aranıyor…</p></div>`);
+  openSheet(`<div class="grip"></div><div class="sheet-body">${closeBtn}<h2 id="sheetTitle">${esc(p.name)}</h2>
+    <p class="loading">Fotoğraf aranıyor…</p>
+    <button class="btn-secondary" type="button" data-s="skip" style="width:100%">Fotoğrafsız devam et</button></div>`, {
+    onAction(act) { if (act === "skip") { pickSeq++; openPreview(p, null); } },
+  });
   const info = await wikiPhoto(p);
-  if (mine !== pickSeq || $("#sheet").hidden) return; // kullanıcı vazgeçti
+  if (mine !== pickSeq || $("#sheet").hidden) return; // vazgeçti ya da fotoğrafsız devam etti
   openPreview(p, info);
 }
 
@@ -848,12 +933,24 @@ function initSearch() {
       activeIdx = (activeIdx + (e.key === "ArrowDown" ? 1 : -1) + preds.length) % preds.length;
       renderSuggestions();
       input.setAttribute("aria-activedescendant", `sg${activeIdx}`);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      pick(activeIdx >= 0 ? activeIdx : 0);
     }
   });
-  $("#suggest").addEventListener("click", (e) => { const li = e.target.closest("li[data-i]"); if (li) pick(Number(li.dataset.i)); });
+  // Klavyedeki Ara / Enter
+  $("#search").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (text.length < 2) return;
+    clearTimeout(t);
+    if (activeIdx >= 0 && preds[activeIdx]) { pick(activeIdx); return; }
+    if (photonOK && preds.length && lastQuery.trim() === text) { pick(0); return; }
+    input.blur();
+    searchNominatim(text);
+  });
+  $("#suggest").addEventListener("click", (e) => {
+    if (e.target.closest("li[data-manual]")) { addManual(input.value); return; }
+    const li = e.target.closest("li[data-i]");
+    if (li) pick(Number(li.dataset.i));
+  });
   $("#qClear").addEventListener("click", () => { clearSearch(); input.focus(); });
   document.addEventListener("click", (e) => { if (!e.target.closest("#search")) hideSuggest(); });
 }
@@ -870,12 +967,31 @@ async function initStore() {
     }
   } else {
     store = createLocalStore();
-    setNotice("store", "<b>Deneme modu.</b> Liste şimdilik sadece bu telefonda. Ortak liste için README'deki Firebase kısmına bak.");
+    setNotice("store", "<b>Deneme modu.</b> Eklediklerin sadece bu cihazda ve bu tarayıcıda duruyor; iPhone'da Safari ile ana ekrandaki uygulama bile ayrı sayılır. Herkesin aynı listeyi görmesi için Firebase'i kur (README).");
   }
+  let migrated = false;
   store.subscribe(
-    (items) => { state.places = items; state.loaded = true; render(); },
+    (items) => {
+      state.places = items; state.loaded = true; render();
+      if (store.mode === "firebase" && !migrated) { migrated = true; migrateLocal(items); }
+    },
     (err) => { console.error(err); setNotice("store", `<b>Liste okunamadı</b> (${esc(err.code || err.message)}). Firestore kurallarını kontrol et.`); }
   );
+}
+
+// Deneme modunda bu cihaza eklenmiş yerleri, Firebase kurulunca ortak listeye taşı.
+function migrateLocal(remote) {
+  const have = new Set(remote.map((x) => x.id));
+  let moved = 0;
+  try {
+    for (const key of Object.keys(localStorage).filter((k) => k.startsWith("dumen.places."))) {
+      for (const item of LS.get(key, [])) {
+        if (item && item.id && item.name && !have.has(item.id)) { have.add(item.id); save(store.add(item)); moved++; }
+      }
+      localStorage.removeItem(key);
+    }
+  } catch (e) { console.warn(e); }
+  if (moved) toast(`Bu cihazdaki ${moved} yer ortak listeye taşındı`);
 }
 
 function onPlaceClick(e) {

@@ -122,6 +122,9 @@ input:focus-visible, textarea:focus-visible { outline: none; }
 .s-sub { font-size: 13px; color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .s-dist { font-size: 13px; color: var(--label-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .suggest .s-info { padding: 14px; color: var(--label-2); font-size: 15px; cursor: default; }
+.suggest .s-info b { color: var(--label); }
+.suggest li[data-manual] .s-pin { color: var(--label-2); }
+.loading + .btn-secondary { margin-top: 4px; }
 .suggest .s-foot { justify-content: flex-end; padding: 4px 14px 2px; font-size: 11px; color: var(--label-3); cursor: default; }
 
 /* ---------- Ana içerik ---------- */
@@ -365,7 +368,8 @@ textarea.field { min-height: 90px; resize: vertical; }
   background: var(--surface); color: var(--label); font-size: 15px; font-weight: 600; text-decoration: none;
 }
 .btn-inline svg { width: 18px; height: 18px; color: var(--star); }
-label.cell { cursor: pointer; }
+label.cell { cursor: pointer; position: relative; }
+.file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 form .group { margin-top: 16px; }
 .attrib a { color: inherit; }
 .hint { margin: 12px 4px 0; font-size: 13px; color: var(--label-2); }

@@ -8,7 +8,7 @@ https://aliaydn33.github.io/dumen/
 
 ## Özellikler
 
-- Ankara ve çevresinde yer arama (OpenStreetMap)
+- Ankara ve çevresinde yer arama (OpenStreetMap). Bulunamayan bir yer adıyla elle de eklenebiliyor
 - Ünlü yerlerin fotoğrafı Wikipedia'dan otomatik geliyor, olmayanlara telefondan fotoğraf eklenebiliyor
 - Google puanı: "Google'da bak" ile Google Haritalar açılıyor, puanı listeye ekleyen kişi yazıyor
 - Ortak liste: biri bir yer ekleyince herkeste anında görünüyor
@@ -19,7 +19,7 @@ https://aliaydn33.github.io/dumen/
 
 ## Kullandıklarım
 
-Framework yok, düz HTML, CSS ve JavaScript. Arama için [Photon](https://photon.komoot.io) (OpenStreetMap verisiyle çalışan ücretsiz bir arama servisi), fotoğraflar için Wikipedia ve Wikidata API'leri, ortak liste için Firebase (anonim giriş ve Firestore). Yol tarifi için Google Haritalar ve Apple Haritalar bağlantıları kullanılıyor. Hiçbiri API anahtarı ya da kart istemiyor. Site GitHub Pages'te duruyor.
+Framework yok, düz HTML, CSS ve JavaScript. Arama için [Photon](https://photon.komoot.io) (OpenStreetMap verisiyle çalışan ücretsiz bir arama servisi; o cevap vermezse klavyedeki Ara tuşuyla OpenStreetMap'in kendi arama servisi Nominatim), fotoğraflar için Wikipedia ve Wikidata API'leri, ortak liste için Firebase (anonim giriş ve Firestore). Yol tarifi için Google Haritalar ve Apple Haritalar bağlantıları kullanılıyor. Hiçbiri API anahtarı ya da kart istemiyor. Site GitHub Pages'te duruyor.
 
 Başta Google Places API kullanmıştım ama Google Cloud kart için ön ödeme istediği için ücretsiz servislere geçtim.
 
@@ -55,7 +55,8 @@ Linki Safari'de aç, Paylaş > Ana Ekrana Ekle. İsim ilk açılışta uygulaman
 ## Notlar
 
 - Harita verisi © OpenStreetMap katkıcıları (ODbL). Wikipedia'dan gelen fotoğraflar Wikimedia Commons'taki lisanslarıyla kullanılıyor, her fotoğrafın kaynağına ayrıntı sayfasından gidilebiliyor.
-- Photon'un herkese açık sunucusu makul kullanım için ücretsiz. Arkadaş grubu için yeterli, çok kullanılırsa kendi sunucusunu kurmak gerekir.
+- Photon'un herkese açık sunucusu makul kullanım için ücretsiz. Arkadaş grubu için yeterli, çok kullanılırsa kendi sunucusunu kurmak gerekir. Nominatim'in kuralları yazarken arama yapmayı yasakladığı için o sadece Ara'ya basınca, saniyede en fazla bir kez çağrılıyor.
+- Deneme modunda eklenen yerler Firebase kurulunca ilk açılışta ortak listeye taşınıyor.
 - Kafe gibi küçük yerlerin çoğunun Wikipedia fotoğrafı yok. Onlara telefondan fotoğraf eklenince küçültülüp listeye kaydediliyor.
 - `config.js` herkese açık, Firebase ayarlarının orada görünmesi normal. Asıl koruma Firestore kuralları.
 - `vendor/firebase.js`, Firebase SDK'nın (12.19) esbuild ile tek dosyaya paketlenmiş hali.

@@ -15,7 +15,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" type="image/png" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
   <header class="head wrap">
@@ -37,7 +37,7 @@
   </header>
 
   <div class="searchbar">
-    <div class="search wrap" id="search">
+    <form class="search wrap" id="search" role="search" action="#" autocomplete="off">
       <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M15.5 15.5L20.5 20.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
       <input id="q" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false"
              placeholder="Nereye gidelim?" aria-label="Yer ara" aria-controls="suggest" aria-expanded="false">
@@ -45,7 +45,7 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="currentColor"/><path d="M7 7l6 6M13 7l-6 6" stroke="var(--bg)" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
       <ul class="suggest" id="suggest" role="listbox" hidden></ul>
-    </div>
+    </form>
   </div>
 
   <main class="main wrap">
@@ -87,7 +87,7 @@
   <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden></section>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="config.js"></script>
-  <script type="module" src="app.js"></script>
+  <script src="config.js?v=5"></script>
+  <script type="module" src="app.js?v=5"></script>
 </body>
 </html>
